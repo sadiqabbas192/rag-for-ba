@@ -1,2 +1,4 @@
-Bihar_Al_Anwaar_PDFs
-__pycache__
+# .gitignore
+__pycache__/
+*.py[cod]
+Bihar_Al_Anwaar_PDFs/
