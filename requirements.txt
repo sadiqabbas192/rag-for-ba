@@ -1,0 +1,11 @@
+fastapi
+uvicorn 
+python-multipart 
+pypdf 
+langchain 
+langchain-google-genai 
+google-generativeai
+psycopg2-binary 
+pgvector 
+python-dotenv 
+tqdm
