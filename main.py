@@ -1,13 +1,4 @@
 # main.py - Bihar ul Anwar RAG System with Simplified Functions
-
-"""
-Bihar ul Anwar RAG System
-Optimized for 110 volumes of Bihar ul Anwar (Arabic + English)
-
-pip install fastapi uvicorn python-multipart pypdf langchain langchain-google-genai 
-pip install psycopg2-binary pgvector python-dotenv tqdm
-"""
-
 import os
 import re
 from typing import List, Dict, Optional, Any
@@ -20,6 +11,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from contextlib import asynccontextmanager
 
 # PDF processing
 from pypdf import PdfReader
@@ -113,6 +105,31 @@ class ProcessingRequest(BaseModel):
         description="Content language: arabic, english, or mixed")
 
 # ===================== FastAPI App Setup =====================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    print("🚀 Starting Bihar ul Anwar RAG System...")
+    print("📚 System designed for 110 volumes of Bihar ul Anwar")
+    print("🔍 Swagger UI will be available at: http://localhost:8000/docs")
+    
+    # Initialize database (this was in your old startup event)
+    try:
+        init_database()
+        print("✅ Bihar ul Anwar RAG System started")
+        print("📖 Access Swagger UI at: http://localhost:8000/docs")
+    except Exception as e:
+        print(f"❌ Startup failed: {e}")
+        # Don't raise the exception, let the app start anyway
+    
+    yield
+    
+    # Shutdown code
+    global db_conn
+    if db_conn:
+        db_conn.close()
+        print("Database connection closed")
+    print("📚 Shutting down...")
+
 app = FastAPI(
     title="Bihar ul Anwar RAG System",
     description="""
@@ -129,8 +146,9 @@ app = FastAPI(
     - Vector similarity search for finding related traditions
     """,
     version="1.0.0",
-    docs_url="/docs",  # Swagger UI
-    redoc_url="/redoc"  # ReDoc UI
+    docs_url="/docs",   # Swagger UI
+    redoc_url="/redoc",  # ReDoc UI
+    lifespan=lifespan
 )
 
 # CORS for n8n
@@ -731,23 +749,23 @@ async def get_statistics():
     }
 
 # ===================== Startup Event =====================
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup"""
-    try:
-        init_database()
-        print("✅ Bihar ul Anwar RAG System started")
-        print("📖 Access Swagger UI at: http://localhost:8000/docs")
-    except Exception as e:
-        print(f"❌ Startup failed: {e}")
+# @app.on_event("startup")
+# async def startup_event():
+#     """Initialize database on startup"""
+#     try:
+#         init_database()
+#         print("✅ Bihar ul Anwar RAG System started")
+#         print("📖 Access Swagger UI at: http://localhost:8000/docs")
+#     except Exception as e:
+#         print(f"❌ Startup failed: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    global db_conn
-    if db_conn:
-        db_conn.close()
-        print("Database connection closed")
+# @app.on_event("shutdown")
+# async def shutdown_event():
+#     """Cleanup on shutdown"""
+#     global db_conn
+#     if db_conn:
+#         db_conn.close()
+#         print("Database connection closed")
 
 # ===================== Run Server =====================
 if __name__ == "__main__":

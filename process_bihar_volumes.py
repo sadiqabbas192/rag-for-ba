@@ -10,7 +10,7 @@ import json
 
 # Configuration
 API_URL = "http://localhost:8000"
-BIHAR_FOLDER = "C:/BiharUlAnwar"  # Update this path to your Bihar ul Anwar folder
+BIHAR_FOLDER = "Bihar_Al_Anwaar_PDFs/"  # Update this path to your Bihar ul Anwar folder
 
 def process_single_volume(pdf_path: str, volume_number: int):
     """Process a single Bihar ul Anwar volume"""
