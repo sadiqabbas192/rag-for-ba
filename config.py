@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+API_TIMEOUT = 120  # 2 minutes
+GEMINI_TIMEOUT = 90  # 1.5 minutes
+
 # ===================== Configuration =====================
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 DB_CONFIG = {
@@ -19,7 +22,7 @@ DB_CONFIG = {
 # Configure Gemini
 genai.configure(api_key=GOOGLE_API_KEY)
 EMBEDDING_MODEL = 'models/text-embedding-004'
-CHAT_MODEL = genai.GenerativeModel('gemini-2.0-flash-exp')
+CHAT_MODEL = genai.GenerativeModel('gemini-2.5-flash-lite')
 
 # System Prompt for Bihar ul Anwar
 SYSTEM_PROMPT = """You are an expert scholar of Bihar ul Anwar, the comprehensive collection of Shia hadith compiled by Allama Muhammad Baqir Majlisi. 

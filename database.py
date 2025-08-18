@@ -132,38 +132,57 @@ def batch_insert_chunks(chunks_data: List[Dict], batch_size: int = 50):
         cursor.close()
 
 def search_similar_chunks(query_embedding: List[float], top_k: int = 7, volume_filter: Optional[int] = None) -> List[Dict]:
-    """Search for similar chunks using vector similarity"""
+    """Search for similar chunks using vector similarity - FIXED VERSION"""
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Build query with optional volume filter
-    base_query = """
-        SELECT 
-            volume_number,
-            chapter_name,
-            hadith_number,
-            arabic_text,
-            english_text,
-            full_text,
-            metadata,
-            1 - (embedding <=> %s::vector) as similarity
-        FROM bihar_chunks
-        WHERE 1 - (embedding <=> %s::vector) > 0.3
-    """
-    
-    if volume_filter:
-        base_query += f" AND volume_number = {volume_filter}"
-    
-    base_query += """
-        ORDER BY embedding <=> %s::vector
-        LIMIT %s
-    """
-    
-    cursor.execute(base_query, (query_embedding, query_embedding, query_embedding, top_k))
-    results = cursor.fetchall()
-    cursor.close()
-    
-    return results
+    try:
+        # Check if embedding is valid
+        if not query_embedding or all(x == 0.0 for x in query_embedding):
+            print("❌ Invalid query embedding (all zeros)")
+            return []
+        
+        # Build query with optional volume filter
+        base_query = """
+            SELECT 
+                volume_number,
+                chapter_name,
+                hadith_number,
+                arabic_text,
+                english_text,
+                full_text,
+                metadata,
+                1 - (embedding <=> %s::vector) as similarity
+            FROM bihar_chunks
+            WHERE embedding IS NOT NULL
+        """
+        
+        params = [query_embedding]
+        
+        # Add volume filter if specified
+        if volume_filter:
+            base_query += " AND volume_number = %s"
+            params.append(volume_filter)
+        
+        # Add similarity threshold and ordering
+        base_query += """
+            AND 1 - (embedding <=> %s::vector) > 0.2
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+        """
+        
+        params.extend([query_embedding, query_embedding, top_k])
+        
+        cursor.execute(base_query, params)
+        results = cursor.fetchall()
+        
+        return results
+        
+    except Exception as e:
+        print(f"❌ Vector search error: {e}")
+        return []
+    finally:
+        cursor.close()
 
 def get_database_stats():
     """Get comprehensive database statistics"""
@@ -221,26 +240,48 @@ def get_processed_volumes():
     return volumes
 
 def search_by_reference(volume: int, chapter: Optional[str] = None, hadith: Optional[str] = None):
-    """Search for specific hadith by reference"""
+    """Search for specific hadith by reference - FIXED VERSION"""
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    query = "SELECT * FROM bihar_chunks WHERE volume_number = %s"
-    params = [volume]
-    
-    if chapter:
-        query += " AND (metadata->>'chapter' = %s OR chapter_name = %s)"
-        params.extend([chapter, chapter])
-    
-    if hadith:
-        query += " AND (metadata->>'hadith_number' = %s OR hadith_number = %s)"
-        params.extend([hadith, hadith])
-    
-    cursor.execute(query, params)
-    results = cursor.fetchall()
-    cursor.close()
-    
-    return results
+    try:
+        # Base query
+        query = "SELECT * FROM bihar_chunks WHERE volume_number = %s"
+        params = [volume]
+        
+        # Add chapter filter if provided
+        if chapter:
+            # Try both metadata and direct chapter_name
+            query += """ AND (
+                (metadata->>'chapter' = %s) OR 
+                (chapter_name = %s) OR
+                (chapter_name ILIKE %s)
+            )"""
+            params.extend([chapter, chapter, f"%{chapter}%"])
+        
+        # Add hadith filter if provided  
+        if hadith:
+            # Try both metadata and direct hadith_number
+            query += """ AND (
+                (metadata->>'hadith_number' = %s) OR 
+                (hadith_number = %s) OR
+                (hadith_number ILIKE %s)
+            )"""
+            params.extend([hadith, hadith, f"%{hadith}%"])
+        
+        # Add ordering and limit
+        query += " ORDER BY chunk_index LIMIT 50"
+        
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        
+        return results
+        
+    except Exception as e:
+        print(f"❌ Database error in search_by_reference: {e}")
+        return []
+    finally:
+        cursor.close()
 
 def record_processed_volume(volume_number: int, file_name: str, total_chunks: int):
     """Record a successfully processed volume"""

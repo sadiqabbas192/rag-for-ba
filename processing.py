@@ -183,13 +183,24 @@ def generate_embeddings(texts: List[str], batch_size: int = 3) -> List[List[floa
     return embeddings
 
 def generate_query_embedding(query: str) -> List[float]:
-    """Generate embedding for search query"""
-    result = genai.embed_content(
-        model=EMBEDDING_MODEL,
-        content=query,
-        task_type="RETRIEVAL_QUERY"
-    )
-    return result['embedding']
+    """Generate embedding for search query - FIXED VERSION"""
+    try:
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=query,
+            task_type="RETRIEVAL_QUERY"
+        )
+        
+        if 'embedding' in result:
+            return result['embedding']
+        else:
+            print(f"❌ No embedding in result: {result}")
+            return [0.0] * 768
+            
+    except Exception as e:
+        print(f"❌ Embedding generation error: {e}")
+        # Return zero embedding as fallback
+        return [0.0] * 768
 
 def generate_answer_with_context(query: str, chunks: List[Dict], include_arabic: bool = True) -> str:
     """Generate answer using Gemini with Bihar ul Anwar context"""
