@@ -12,7 +12,7 @@ from typing import List, Dict
 API_URL = "http://localhost:8000"
 BIHAR_FOLDER = "Bihar_Al_Anwaar_PDFs"  # Your PDF folder
 MAX_PAGES_PER_VOLUME = 200  # Limit pages for large files
-CONCURRENT_VOLUMES = 2  # Process 2 volumes simultaneously
+CONCURRENT_VOLUMES = 1  # Process 'n' volumes simultaneously
 RETRY_FAILED = True
 
 def process_volume_with_retry(pdf_path: str, volume_number: int, max_retries: int = 2):
@@ -106,14 +106,20 @@ def process_volumes_optimized():
     
     # Check already processed
     processed_volumes = get_processed_volumes()
-    pending_volumes = [(v, f) for v, f in volume_files if v not in processed_volumes]
+    
+    # ✅ CORRECT PLACEMENT: Filter for volumes 8-20 for testing
+    pending_volumes = [(v, f) for v, f in volume_files if v not in processed_volumes and 8 <= v <= 20]
     
     print(f"✅ Already processed: {len(processed_volumes)} volumes")
-    print(f"⏳ Pending: {len(pending_volumes)} volumes")
+    print(f"⏳ Testing with volumes 8-20: {len(pending_volumes)} volumes")
     
     if not pending_volumes:
-        print("🎉 All volumes already processed!")
+        print("🎉 All test volumes (8-20) already processed!")
         return
+    
+    # Show which volumes will be processed
+    test_volume_numbers = [v for v, f in pending_volumes]
+    print(f"📋 Will process volumes: {test_volume_numbers}")
     
     # Process volumes with concurrent processing
     successful = []
