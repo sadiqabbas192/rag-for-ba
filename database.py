@@ -1,5 +1,6 @@
-# database.py - Database Functions and Models
+# database.py - Complete database functions with enhancements
 import psycopg2
+import re
 from psycopg2.extras import RealDictCursor, Json
 from pgvector.psycopg2 import register_vector
 from typing import List, Dict, Optional
@@ -131,18 +132,18 @@ def batch_insert_chunks(chunks_data: List[Dict], batch_size: int = 50):
     finally:
         cursor.close()
 
-def search_similar_chunks(query_embedding: List[float], top_k: int = 7, volume_filter: Optional[int] = None) -> List[Dict]:
-    """Search for similar chunks using vector similarity - FIXED VERSION"""
+def search_similar_chunks_relaxed(query_embedding: List[float], top_k: int = 7, volume_filter: Optional[int] = None) -> List[Dict]:
+    """IMPROVED: Vector search with smart content filtering"""
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
         # Check if embedding is valid
         if not query_embedding or all(x == 0.0 for x in query_embedding):
-            print("❌ Invalid query embedding (all zeros)")
+            print("❌ Invalid query embedding")
             return []
         
-        # Build query with optional volume filter
+        # Query with reasonable similarity threshold
         base_query = """
             SELECT 
                 volume_number,
@@ -155,28 +156,76 @@ def search_similar_chunks(query_embedding: List[float], top_k: int = 7, volume_f
                 1 - (embedding <=> %s::vector) as similarity
             FROM bihar_chunks
             WHERE embedding IS NOT NULL
+            AND LENGTH(COALESCE(english_text, full_text, '')) > 100
         """
         
         params = [query_embedding]
         
-        # Add volume filter if specified
+        # Add volume filter
         if volume_filter:
             base_query += " AND volume_number = %s"
             params.append(volume_filter)
         
-        # Add similarity threshold and ordering
+        # Reasonable similarity threshold
         base_query += """
-            AND 1 - (embedding <=> %s::vector) > 0.2
+            AND 1 - (embedding <=> %s::vector) > 0.3
             ORDER BY embedding <=> %s::vector
             LIMIT %s
         """
         
-        params.extend([query_embedding, query_embedding, top_k])
+        params.extend([query_embedding, query_embedding, top_k * 3])  # Get more to filter
         
         cursor.execute(base_query, params)
-        results = cursor.fetchall()
+        raw_results = cursor.fetchall()
         
-        return results
+        print(f"🔍 Found {len(raw_results)} raw results")
+        
+        # IMPROVED: Smart filtering that keeps actual content
+        filtered_results = []
+        for result in raw_results:
+            full_text = result['full_text'].lower().strip()
+            english_text = result.get('english_text', '').lower()
+            
+            # Skip obvious non-content
+            should_exclude = (
+                # Table of contents entries
+                ('table of contents' in full_text and len(full_text) < 200)
+                or
+                # Pure index pages
+                (full_text.startswith('overall') and 'index' in full_text and len(full_text) < 150)
+                or
+                # Very short page headers
+                (len(full_text) < 80 and 'bihar al-anwaar' in full_text)
+                or
+                # Chapter titles without content (short)
+                (full_text.startswith('chapter') and len(full_text) < 120)
+            )
+            
+            # Prefer content with hadith indicators
+            has_hadith_content = any([
+                'said' in english_text,
+                'narrated' in english_text,
+                'reported' in english_text,
+                'tradition' in english_text,
+                'hadith' in english_text,
+                result.get('hadith_number') is not None,
+                'قال' in result.get('arabic_text', ''),
+                'عن' in result.get('arabic_text', ''),
+            ])
+            
+            if not should_exclude:
+                # Prioritize hadith content
+                result['content_priority'] = 1 if has_hadith_content else 0.5
+                filtered_results.append(result)
+        
+        # Sort by content priority and similarity
+        filtered_results.sort(key=lambda x: (x['content_priority'], x['similarity']), reverse=True)
+        
+        # Return top results
+        final_results = filtered_results[:top_k]
+        
+        print(f"🔍 Smart filtering: {len(final_results)} quality results from {len(raw_results)} raw results")
+        return final_results
         
     except Exception as e:
         print(f"❌ Vector search error: {e}")
@@ -239,46 +288,81 @@ def get_processed_volumes():
     
     return volumes
 
-def search_by_reference(volume: int, chapter: Optional[str] = None, hadith: Optional[str] = None):
-    """Search for specific hadith by reference - FIXED VERSION"""
+def search_by_reference_relaxed(volume: int, chapter: Optional[str] = None, hadith: Optional[str] = None):
+    """FIXED: Reference search with corrected SQL"""
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        # Base query
-        query = "SELECT * FROM bihar_chunks WHERE volume_number = %s"
+        print(f"🔍 Fixed search: Volume {volume}, Chapter {chapter}, Hadith {hadith}")
+        
+        # Start with base query
+        base_query = """
+            SELECT 
+                volume_number,
+                chapter_name,
+                hadith_number,
+                arabic_text,
+                english_text,
+                LEFT(full_text, 300) as full_text,
+                metadata
+            FROM bihar_chunks 
+            WHERE volume_number = %s
+        """
         params = [volume]
         
         # Add chapter filter if provided
-        if chapter:
-            # Try both metadata and direct chapter_name
-            query += """ AND (
-                (metadata->>'chapter' = %s) OR 
-                (chapter_name = %s) OR
-                (chapter_name ILIKE %s)
-            )"""
-            params.extend([chapter, chapter, f"%{chapter}%"])
+        if chapter and chapter.strip():
+            base_query += " AND (chapter_name = %s OR chapter_name ILIKE %s)"
+            params.append(chapter)
+            params.append(f'%{chapter}%')
         
         # Add hadith filter if provided  
-        if hadith:
-            # Try both metadata and direct hadith_number
-            query += """ AND (
-                (metadata->>'hadith_number' = %s) OR 
-                (hadith_number = %s) OR
-                (hadith_number ILIKE %s)
-            )"""
-            params.extend([hadith, hadith, f"%{hadith}%"])
+        if hadith and hadith.strip():
+            base_query += " AND (hadith_number = %s OR hadith_number ILIKE %s)"
+            params.append(hadith)
+            params.append(f'%{hadith}%')
         
-        # Add ordering and limit
-        query += " ORDER BY chunk_index LIMIT 50"
+        # Add basic length filter and ordering
+        base_query += """
+            AND LENGTH(COALESCE(english_text, full_text, '')) > 50
+            ORDER BY 
+                CASE WHEN hadith_number IS NOT NULL THEN 1 ELSE 2 END,
+                chunk_index 
+            LIMIT 20
+        """
         
-        cursor.execute(query, params)
-        results = cursor.fetchall()
+        print(f"Executing query with {len(params)} parameters...")
+        print(f"Query: {base_query}")
+        print(f"Params: {params}")
         
-        return results
+        cursor.execute(base_query, params)
+        raw_results = cursor.fetchall()
+        
+        print(f"Raw results: {len(raw_results)}")
+        
+        # Very minimal filtering - only exclude obvious non-content
+        filtered_results = []
+        for result in raw_results:
+            full_text = result['full_text'].lower().strip() if result['full_text'] else ""
+            
+            # Only exclude very obvious non-content
+            should_exclude = (
+                len(full_text) < 30  # Very short
+                or full_text.startswith('table of contents')  # Pure TOC
+                or (full_text.startswith('page ') and len(full_text) < 50)  # Page numbers only
+            )
+            
+            if not should_exclude:
+                filtered_results.append(result)
+        
+        print(f"✅ Found {len(filtered_results)} results after minimal filtering")
+        return filtered_results
         
     except Exception as e:
-        print(f"❌ Database error in search_by_reference: {e}")
+        print(f"❌ Fixed reference search error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
     finally:
         cursor.close()
@@ -307,3 +391,44 @@ def close_db_connection():
     if db_conn and not db_conn.closed:
         db_conn.close()
         print("Database connection closed")
+
+# Additional helper functions remain the same
+def analyze_volume_metadata(volume: int):
+    """Analyze metadata structure for a volume"""
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                chapter_name,
+                hadith_number,
+                metadata,
+                LEFT(full_text, 200) as text_sample
+            FROM bihar_chunks 
+            WHERE volume_number = %s 
+            ORDER BY chunk_index
+            LIMIT 10
+        """, [volume])
+        
+        results = cursor.fetchall()
+        
+        chapters_found = set()
+        hadiths_found = set()
+        
+        for row in results:
+            if row['chapter_name']:
+                chapters_found.add(row['chapter_name'])
+            if row['hadith_number']:
+                hadiths_found.add(row['hadith_number'])
+        
+        return {
+            'chapters': list(chapters_found),
+            'hadiths': list(hadiths_found)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error analyzing metadata: {e}")
+        return {}
+    finally:
+        cursor.close()

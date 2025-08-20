@@ -1,4 +1,4 @@
-# main.py - Bihar ul Anwar RAG System (Refactored)
+# main.py - Bihar ul Anwar RAG System (Updated with correct imports)
 import time
 from typing import List, Dict, Optional, Any
 from pathlib import Path
@@ -9,23 +9,24 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Local imports
+# Local imports - UPDATED FOR NEW FUNCTION NAMES
 from config import DB_BATCH_SIZE
 from database import (
     init_database, 
     get_database_stats, 
     get_processed_volumes, 
-    search_by_reference as db_search_by_reference,
-    search_similar_chunks,
+    search_by_reference_relaxed,      # Make sure this matches
+    search_similar_chunks_relaxed,    # Make sure this matches
     batch_insert_chunks,
     record_processed_volume,
     close_db_connection
 )
+
 from processing import (
     process_pdf_text,
     generate_embeddings,
     generate_query_embedding,
-    generate_answer_with_context
+    generate_answer_with_context  # This function is enhanced but keeps same name
 )
 
 # ===================== Pydantic Models =====================
@@ -67,13 +68,13 @@ class ProcessingRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print("🚀 Starting Bihar ul Anwar RAG System...")
+    print("🚀 Starting Enhanced Bihar ul Anwar RAG System...")
     print("📚 System designed for 110 volumes of Bihar ul Anwar")
     print("🔍 Swagger UI will be available at: http://localhost:8000/docs")
     
     try:
         init_database()
-        print("✅ Bihar ul Anwar RAG System started")
+        print("✅ Enhanced Bihar ul Anwar RAG System started")
         print("📖 Access Swagger UI at: http://localhost:8000/docs")
     except Exception as e:
         print(f"❌ Startup failed: {e}")
@@ -85,21 +86,22 @@ async def lifespan(app: FastAPI):
     print("📚 Shutting down...")
 
 app = FastAPI(
-    title="Bihar ul Anwar RAG System",
+    title="Enhanced Bihar ul Anwar RAG System",
     description="""
-    ## Comprehensive Search System for Bihar ul Anwar (110 Volumes)
+    ## Enhanced Search System for Bihar ul Anwar (110 Volumes)
     
     This API provides intelligent search and retrieval from all 110 volumes of Bihar ul Anwar,
-    supporting both Arabic and English text with precise hadith referencing.
+    with enhanced filtering and content quality controls.
     
-    ### Features:
-    - Search across all 110 volumes
-    - Bilingual support (Arabic + English)
+    ### Enhanced Features:
+    - Search across all 110 volumes with content filtering
+    - Bilingual support (Arabic + English) 
     - Precise hadith referencing (Volume, Chapter, Hadith number)
-    - Context-aware responses using Gemini 2.0 Flash
-    - Vector similarity search for finding related traditions
+    - Enhanced AI responses using only book content
+    - Improved vector similarity search
+    - Quality-based content ranking
     """,
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan
@@ -123,20 +125,27 @@ async def root():
     
     return {
         "status": "healthy",
-        "system": "Bihar ul Anwar RAG System",
+        "system": "Enhanced Bihar ul Anwar RAG System",
+        "version": "2.0.0",
         "volumes_processed": stats['total_volumes'],
         "total_chunks": stats['total_chunks'],
         "database": "connected",
-        "gemini_api": "configured"
+        "gemini_api": "configured",
+        "enhancements": [
+            "Content filtering",
+            "Enhanced AI prompts", 
+            "Quality-based ranking",
+            "Improved reference extraction"
+        ]
     }
 
 @app.post("/query", response_model=HadithResponse, tags=["Search"])
 async def search_bihar_anwar(request: QueryRequest):
     """
-    Search Bihar ul Anwar for hadith and traditions
+    Enhanced Search Bihar ul Anwar for hadith and traditions
     
-    This endpoint searches across all 110 volumes and returns relevant hadiths
-    with proper references (Volume, Chapter, Hadith number).
+    This endpoint searches across all 110 volumes with enhanced filtering
+    and returns relevant hadiths with improved accuracy.
     """
     start_time = time.time()
     
@@ -144,12 +153,12 @@ async def search_bihar_anwar(request: QueryRequest):
         # Generate query embedding
         query_embedding = generate_query_embedding(request.query)
         
-        # Search for relevant chunks
-        chunks = search_similar_chunks(
+        # Enhanced search for relevant chunks
+        chunks = search_similar_chunks_relaxed(
             query_embedding, 
             request.top_k,
             request.volume_filter
-        )
+            )
         
         if not chunks:
             return HadithResponse(
@@ -161,24 +170,33 @@ async def search_bihar_anwar(request: QueryRequest):
                 total_sources=0
             )
         
-        # Generate comprehensive answer
+        # Generate enhanced answer with strict content controls
         answer = generate_answer_with_context(
             request.query,
             chunks,
             request.include_arabic
         )
         
-        # Format references
+        # Format references with clean format
         references = []
         for chunk in chunks:
             metadata = chunk.get('metadata', {})
+            
+            # Build clean reference
+            ref_parts = [f"Volume {chunk['volume_number']}"]
+            if metadata.get('chapter'):
+                ref_parts.append(f"Chapter {metadata['chapter']}")
+            if metadata.get('hadith_number'):
+                ref_parts.append(f"Hadith {metadata['hadith_number']}")
+            
             ref = {
                 'volume': chunk['volume_number'],
                 'chapter': metadata.get('chapter', 'Not specified'),
                 'hadith_number': metadata.get('hadith_number', 'Not specified'),
                 'similarity_score': round(float(chunk['similarity']), 3),
-                'excerpt_english': chunk['english_text'][:200] if chunk['english_text'] else "",
-                'excerpt_arabic': chunk['arabic_text'][:200] if chunk['arabic_text'] and request.include_arabic else ""
+                'reference': f"Bihar ul Anwar, {', '.join(ref_parts)}",
+                'excerpt_english': chunk['english_text'][:150] if chunk['english_text'] else "",
+                'excerpt_arabic': chunk['arabic_text'][:150] if chunk['arabic_text'] and request.include_arabic else ""
             }
             references.append(ref)
         
@@ -196,15 +214,15 @@ async def search_bihar_anwar(request: QueryRequest):
 
 @app.post("/process-volume", tags=["Processing"])
 async def process_bihar_volume(request: ProcessingRequest):
-    """Process a Bihar ul Anwar volume PDF"""
+    """Process a Bihar ul Anwar volume PDF with enhanced metadata extraction"""
     start_time = time.time()
     
     try:
-        print(f"\n📖 Processing Volume {request.volume_number}")
-        print(f"📁 File: {request.file_path}")
+        print(f"\n📖 Processing Volume {request.volume_number} (Enhanced)")
+        print(f"🔍 File: {request.file_path}")
         
         # Extract text and create chunks
-        chunks = process_pdf_text(request.file_path, request.volume_number, max_pages=200)
+        chunks = process_pdf_text(request.file_path, request.volume_number, max_pages=100)
         
         if not chunks:
             return {"success": False, "message": "No text extracted from PDF"}
@@ -213,7 +231,7 @@ async def process_bihar_volume(request: ProcessingRequest):
         
         # Generate embeddings
         texts = [chunk['full_text'] for chunk in chunks]
-        embeddings = generate_embeddings(texts, batch_size=3)
+        embeddings = generate_embeddings(texts, batch_size=2)
         
         # Add embeddings to chunks
         for chunk, embedding in zip(chunks, embeddings):
@@ -236,8 +254,9 @@ async def process_bihar_volume(request: ProcessingRequest):
             "message": f"Successfully processed Bihar ul Anwar Volume {request.volume_number}",
             "chunks_created": stored,
             "processing_time": processing_time,
-            "pages_processed": "Max 200 pages",
-            "file": request.file_path
+            "pages_processed": "Max 100 pages (optimized)",
+            "file": request.file_path,
+            "enhancements": "Enhanced metadata extraction applied"
         }
         
     except Exception as e:
@@ -269,34 +288,63 @@ async def search_by_reference(
     chapter: Optional[str] = Query(None, description="Chapter number"),
     hadith: Optional[str] = Query(None, description="Hadith number")
 ):
-    """Search for specific hadith by reference (Volume, Chapter, Hadith number)"""
-    results = db_search_by_reference(volume, chapter, hadith)
-    
-    return {
-        "success": True,
-        "query": f"Volume {volume}, Chapter {chapter or 'Any'}, Hadith {hadith or 'Any'}",
-        "results": results,
-        "count": len(results)
-    }
+    """Enhanced search for specific hadith by reference with content filtering"""
+    try:
+        results = search_by_reference_relaxed(volume, chapter, hadith)
+        
+        # Format results with clean references
+        formatted_results = []
+        for result in results:
+            # Build clean reference
+            ref_parts = [f"Volume {result['volume_number']}"]
+            if result.get('chapter_name'):
+                ref_parts.append(f"Chapter {result['chapter_name']}")
+            if result.get('hadith_number'):
+                ref_parts.append(f"Hadith {result['hadith_number']}")
+            
+            formatted_result = dict(result)
+            formatted_result['clean_reference'] = f"Bihar ul Anwar, {', '.join(ref_parts)}"
+            formatted_results.append(formatted_result)
+        
+        return {
+            "success": True,
+            "query": f"Volume {volume}, Chapter {chapter or 'Any'}, Hadith {hadith or 'Any'}",
+            "results": formatted_results,
+            "count": len(formatted_results),
+            "enhancement": "Content filtered and quality ranked"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "results": [],
+            "count": 0
+        }
 
 @app.get("/statistics", tags=["Information"])
 async def get_statistics():
-    """Get Bihar ul Anwar database statistics"""
+    """Get enhanced Bihar ul Anwar database statistics"""
     stats = get_database_stats()
     
     return {
         "success": True,
         "statistics": stats,
-        "coverage": f"{stats['total_volumes']}/110 volumes processed"
+        "coverage": f"{stats['total_volumes']}/110 volumes processed",
+        "quality_metrics": {
+            "chapters_extracted": f"{stats['total_chapters']} unique chapters",
+            "hadiths_extracted": f"{stats['total_hadiths']} unique hadiths",
+            "bilingual_support": f"{stats['chunks_with_arabic']} Arabic, {stats['chunks_with_english']} English"
+        }
     }
 
 # ===================== Run Server =====================
 if __name__ == "__main__":
     import uvicorn
     
-    print("🚀 Starting Bihar ul Anwar RAG System...")
+    print("🚀 Starting Enhanced Bihar ul Anwar RAG System...")
     print("📚 System designed for 110 volumes of Bihar ul Anwar")
-    print("🔍 Swagger UI will be available at: http://localhost:8000/docs")
+    print("🔍 Enhanced with content filtering and quality controls")
+    print("📖 Swagger UI will be available at: http://localhost:8000/docs")
     
     uvicorn.run(
         app,

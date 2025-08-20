@@ -195,7 +195,7 @@ Visit `http://localhost:8000/docs` for interactive API documentation.
 
 **Example Query:**
 ```python
-import requests
+import requests+
 
 response = requests.post("http://localhost:8000/query", json={
     "query": "What does Bihar ul Anwar say about the Scale of Justice?",
