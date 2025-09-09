@@ -255,8 +255,8 @@ CREATE INDEX idx_chapters_keywords ON chapters USING GIN(c_topic_keywords) WHERE
 CREATE INDEX idx_hadiths_hadith_ref ON hadiths(h_hadith_ref) WHERE is_deleted = false;
 CREATE INDEX idx_hadiths_c_id_h_no ON hadiths(h_c_id, h_no) WHERE is_deleted = false;
 CREATE INDEX idx_hadiths_verified ON hadiths(h_is_verified) WHERE is_deleted = false;
-CREATE GIN INDEX idx_hadiths_topics ON hadiths USING GIN(h_topics) WHERE is_deleted = false;
-CREATE GIN INDEX idx_hadiths_raw_json ON hadiths USING GIN(h_raw_json) WHERE is_deleted = false;
+CREATE INDEX idx_hadiths_topics ON hadiths USING GIN(h_topics) WHERE is_deleted = false;
+CREATE INDEX idx_hadiths_raw_json ON hadiths USING GIN(h_raw_json) WHERE is_deleted = false;
 
 CREATE INDEX idx_verses_c_id ON verses(vr_c_id) WHERE is_deleted = false;
 CREATE INDEX idx_verses_surah ON verses(vr_surah_no) WHERE is_deleted = false;
