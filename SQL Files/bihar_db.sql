@@ -12,11 +12,17 @@ CREATE TYPE content_type AS ENUM ('hadith', 'verse', 'commentary', 'chapter_head
 CREATE TYPE embedding_model AS ENUM ('gemini-text-embedding-004', 'llama-embedding', 'qwen-embedding');
 CREATE TYPE language_code AS ENUM ('ar', 'en', 'ur', 'fa');
 
--- table topics
-CREATE TABLE topics (
-    t_id SERIAL PRIMARY KEY,
-    topic_name_en VARCHAR(300) UNIQUE,
-    topic_name_ar VARCHAR(300),
+-- table editions
+CREATE TABLE editions (
+    e_id SERIAL PRIMARY KEY,
+    e_name VARCHAR(300) UNIQUE,
+    e_publisher VARCHAR(300),
+    e_year_published INTEGER,
+    e_language language_code DEFAULT 'ar',
+    e_is_canonical BOOLEAN DEFAULT FALSE,
+    e_pdf_available BOOLEAN DEFAULT FALSE,
+    e_total_volumes INTEGER DEFAULT 110,
+    e_notes TEXT,
     -- audit and logs
     created_by VARCHAR(100) NOT NULL DEFAULT current_user,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
@@ -25,7 +31,7 @@ CREATE TABLE topics (
     -- soft delete
     is_deleted BOOLEAN NOT NULL DEFAULT false,
     deleted_at TIMESTAMP WITH TIME ZONE,
-    deleted_by VARCHAR(100) 
+    deleted_by VARCHAR(100)
 );
 
 -- table volumes
@@ -40,7 +46,7 @@ CREATE TABLE volumes (
     v_total_pages INTEGER,
     v_file_size_mb DECIMAL(10,2),
     v_processing_status VARCHAR(50) DEFAULT 'pending', -- pending, processing, completed, error
-    v_quality_score DECIMAL(3,2) DEFAULT 0.0,
+    v_e_id INTEGER NOT NULL,
     -- audit and logs
     created_by VARCHAR(100) NOT NULL DEFAULT current_user,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
@@ -49,7 +55,9 @@ CREATE TABLE volumes (
     -- soft delete
     is_deleted BOOLEAN NOT NULL DEFAULT false,
     deleted_at TIMESTAMP WITH TIME ZONE,
-    deleted_by VARCHAR(100)
+    deleted_by VARCHAR(100),
+    -- foreign key constraints
+    CONSTRAINT volumes_e_id_fk FOREIGN KEY (v_e_id) REFERENCES editions(e_id) ON DELETE CASCADE
 );
 
 -- table chapters
@@ -63,6 +71,7 @@ CREATE TABLE chapters (
     c_description_en TEXT,
     c_description_ar TEXT,
     c_topic_keywords TEXT[], -- Array of keywords for this chapter
+    c_section_no INTEGER, -- Section number within volume
     c_v_id INTEGER NOT NULL,
     -- audit and logs
     created_by VARCHAR(100) NOT NULL DEFAULT current_user,
@@ -76,14 +85,14 @@ CREATE TABLE chapters (
     -- foreign key constraints
     CONSTRAINT chapters_v_id_fk FOREIGN KEY (c_v_id) REFERENCES volumes(v_id) ON DELETE CASCADE,
     -- unique constraints
-    UNIQUE(c_v_id, c_no)
+    UNIQUE(c_v_id, c_section_no, c_no)
 );
 
 -- table hadiths
 CREATE TABLE hadiths (
     h_id SERIAL PRIMARY KEY,
     h_no INTEGER NOT NULL,
-    h_hadith_ref VARCHAR(50) UNIQUE NOT NULL, -- BH_V{v}_C{c}_H{h}
+    h_hadith_ref VARCHAR(50) UNIQUE NOT NULL, -- BH_V{v}_C{c}_S{s}_H{h}
     h_narrator_chain_length INTEGER DEFAULT 0,
     h_narrator_final_ar VARCHAR(300), -- Final narrator in chain in ar
     h_narrator_final_en VARCHAR(300), -- Final narrator in chain in en
@@ -119,6 +128,33 @@ CREATE TABLE hadiths (
     UNIQUE(h_c_id, h_no)
 );
 
+-- table hadith_pages
+CREATE TABLE hadith_pages (
+    hp_id SERIAL PRIMARY KEY,
+    hp_h_id INTEGER NOT NULL,
+    hp_e_id INTEGER NOT NULL,
+    hp_page_start INTEGER NOT NULL,
+    hp_page_end INTEGER,
+    hp_pdf_offset_start INTEGER, -- For direct PDF navigation
+    hp_pdf_offset_end INTEGER,
+    -- audit and logs
+    created_by VARCHAR(100) NOT NULL DEFAULT current_user,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+    modified_by VARCHAR(100) NOT NULL DEFAULT current_user,
+    modified_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+    -- soft delete
+    is_deleted BOOLEAN NOT NULL DEFAULT false,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by VARCHAR(100),
+    -- foreign key constraints
+    CONSTRAINT hadith_pages_h_id_fk FOREIGN KEY (hp_h_id) REFERENCES hadiths(h_id) ON DELETE CASCADE,
+    CONSTRAINT hadith_pages_e_id_fk FOREIGN KEY (hp_e_id) REFERENCES editions(e_id) ON DELETE CASCADE,
+    -- unique constraints
+    UNIQUE(hp_h_id, hp_e_id),
+    -- check constraints
+    CHECK (hp_page_end IS NULL OR hp_page_end >= hp_page_start)
+);
+
 -- table verses
 CREATE TABLE verses (
     vr_id SERIAL PRIMARY KEY,
@@ -146,17 +182,11 @@ CREATE TABLE verses (
     CHECK (vr_ayat_end IS NULL OR vr_ayat_end >= vr_ayat_start)
 );
 
--- table editions
-CREATE TABLE editions (
-    e_id SERIAL PRIMARY KEY,
-    e_name VARCHAR(300) UNIQUE,
-    e_publisher VARCHAR(300),
-    e_year_published INTEGER,
-    e_language language_code DEFAULT 'ar',
-    e_is_canonical BOOLEAN DEFAULT FALSE,
-    e_pdf_available BOOLEAN DEFAULT FALSE,
-    e_total_volumes INTEGER DEFAULT 110,
-    e_notes TEXT,
+-- table topics
+CREATE TABLE topics (
+    t_id SERIAL PRIMARY KEY,
+    topic_name_en VARCHAR(300) UNIQUE,
+    topic_name_ar VARCHAR(300),
     -- audit and logs
     created_by VARCHAR(100) NOT NULL DEFAULT current_user,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
@@ -165,34 +195,7 @@ CREATE TABLE editions (
     -- soft delete
     is_deleted BOOLEAN NOT NULL DEFAULT false,
     deleted_at TIMESTAMP WITH TIME ZONE,
-    deleted_by VARCHAR(100)
-);
-
--- table hadith_pages
-CREATE TABLE hadith_pages (
-    hp_id SERIAL PRIMARY KEY,
-    hp_h_id INTEGER NOT NULL,
-    hp_e_id INTEGER NOT NULL,
-    hp_page_start INTEGER NOT NULL,
-    hp_page_end INTEGER,
-    hp_pdf_offset_start INTEGER, -- For direct PDF navigation
-    hp_pdf_offset_end INTEGER,
-    -- audit and logs
-    created_by VARCHAR(100) NOT NULL DEFAULT current_user,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
-    modified_by VARCHAR(100) NOT NULL DEFAULT current_user,
-    modified_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
-    -- soft delete
-    is_deleted BOOLEAN NOT NULL DEFAULT false,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    deleted_by VARCHAR(100),
-    -- foreign key constraints
-    CONSTRAINT hadith_pages_h_id_fk FOREIGN KEY (hp_h_id) REFERENCES hadiths(h_id) ON DELETE CASCADE,
-    CONSTRAINT hadith_pages_e_id_fk FOREIGN KEY (hp_e_id) REFERENCES editions(e_id) ON DELETE CASCADE,
-    -- unique constraints
-    UNIQUE(hp_h_id, hp_e_id),
-    -- check constraints
-    CHECK (hp_page_end IS NULL OR hp_page_end >= hp_page_start)
+    deleted_by VARCHAR(100) 
 );
 
 -- ---------- RAG Retrieval Layer ----------
@@ -272,6 +275,18 @@ CREATE INDEX idx_hadiths_normalized_gin ON hadiths USING GIN(to_tsvector('englis
 CREATE INDEX idx_search_docs_normalized_gin ON search_documents USING GIN(to_tsvector('english', sd_normalized_content)) WHERE is_deleted = false;
 
 
+-- MISSING: Vector similarity search index
+CREATE INDEX idx_embeddings_vector ON embeddings USING ivfflat (emb_embedding vector_cosine_ops) WITH (lists = 100) WHERE is_deleted = false AND emb_is_active = true;
+
+-- MISSING: Active embeddings filter
+CREATE INDEX idx_embeddings_active_lookup ON embeddings(emb_sd_id, emb_is_active) WHERE emb_is_active = true AND is_deleted = false;
+
+-- MISSING: Arabic full-text search
+CREATE INDEX idx_hadiths_arabic_gin ON hadiths USING GIN(to_tsvector('arabic', h_matn_ar)) WHERE is_deleted = false;
+
+-- MISSING: Chapter hierarchy navigation
+CREATE INDEX idx_chapters_hierarchy ON chapters(c_v_id, c_section_no, c_no) WHERE is_deleted = false;
+
 -- ****************************************** TRIGGERS AND ITS FUNCTIONS *******************************************************
 -- Utility functions
 CREATE OR REPLACE FUNCTION generate_hadith_ref(vol_no INTEGER, chap_no INTEGER, hadith_no INTEGER)
@@ -284,26 +299,41 @@ $$ LANGUAGE plpgsql;
 -- Update counts function
 CREATE OR REPLACE FUNCTION update_chapter_hadith_counts()
 RETURNS TRIGGER AS $$
+DECLARE
+    affected_chapter_id INTEGER;
+    affected_volume_id INTEGER;
 BEGIN
-    -- Update hadith count in chapters
+    -- Determine affected chapter
+    IF TG_OP = 'DELETE' THEN
+        affected_chapter_id := OLD.h_c_id;
+    ELSE
+        affected_chapter_id := NEW.h_c_id;
+    END IF;
+    
+    -- Update only affected chapter
     UPDATE chapters 
     SET c_total_hadith = (
         SELECT COUNT(*) 
         FROM hadiths 
-        WHERE h_c_id = chapters.c_id AND is_deleted = false
+        WHERE h_c_id = affected_chapter_id AND is_deleted = false
     )
-    WHERE is_deleted = false;
+    WHERE c_id = affected_chapter_id;
     
-    -- Update chapter count in volumes
+    -- Get volume ID
+    SELECT c_v_id INTO affected_volume_id 
+    FROM chapters 
+    WHERE c_id = affected_chapter_id;
+    
+    -- Update only affected volume
     UPDATE volumes 
     SET v_total_chapters = (
         SELECT COUNT(*) 
         FROM chapters 
-        WHERE c_v_id = volumes.v_id AND is_deleted = false
+        WHERE c_v_id = affected_volume_id AND is_deleted = false
     )
-    WHERE is_deleted = false;
+    WHERE v_id = affected_volume_id;
     
-    RETURN NULL;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -313,14 +343,43 @@ CREATE TRIGGER trigger_update_hadith_counts
     EXECUTE FUNCTION update_chapter_hadith_counts();
 
 
+-- ************************************************ FUNCTIONS ************************************************
+-- Function to get hadith by reference
+CREATE OR REPLACE FUNCTION get_hadith_by_ref(hadith_ref VARCHAR(50))
+RETURNS TABLE(
+    volume INTEGER,
+    chapter INTEGER,
+    hadith INTEGER,
+    matn_ar TEXT,
+    matn_en TEXT,
+    citation TEXT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        hc.volume,
+        hc.chapter,
+        hc.h_no,
+        hc.h_matn_ar,
+        hc.h_matn_en,
+        hc.full_citation
+    FROM hadith_complete hc
+    WHERE hc.h_hadith_ref = hadith_ref;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ******************************************* VIEWS *******************************************************
 -- Useful views
 CREATE VIEW hadith_complete AS
+WITH canonical_edition AS (
+    SELECT e_id FROM editions WHERE e_is_canonical = TRUE LIMIT 1
+)
 SELECT 
     h.h_hadith_ref,
     h.h_no,
     v.v_no as volume,
     c.c_no as chapter,
+    c.c_section_no as section, -- Add section number
     c.c_name_en as chapter_name_en,
     c.c_name_ar as chapter_name_ar,
     h.h_source_book_en,
@@ -335,36 +394,17 @@ SELECT
     h.h_explanation_en,
     hp.hp_page_start,
     hp.hp_page_end,
-    CONCAT('Bihar ul Anwar, Volume ', v.v_no, ', Chapter ', c.c_no, ', Hadith ', h.h_no) as full_citation
+    CASE 
+        WHEN c.c_section_no IS NOT NULL THEN
+            CONCAT('Bihar ul Anwar, Volume ', v.v_no, ', Section ', c.c_section_no, ', Chapter ', c.c_no, ', Hadith ', h.h_no)
+        ELSE
+            CONCAT('Bihar ul Anwar, Volume ', v.v_no, ', Chapter ', c.c_no, ', Hadith ', h.h_no)
+    END as full_citation
 FROM hadiths h
 JOIN chapters c ON h.h_c_id = c.c_id
 JOIN volumes v ON c.c_v_id = v.v_id
-LEFT JOIN hadith_pages hp ON h.h_id = hp.hp_h_id AND hp.hp_e_id = (SELECT e_id FROM editions WHERE e_is_canonical = TRUE LIMIT 1)
+LEFT JOIN hadith_pages hp ON h.h_id = hp.hp_h_id 
+LEFT JOIN canonical_edition ce ON hp.hp_e_id = ce.e_id
 WHERE h.is_deleted = false AND c.is_deleted = false AND v.is_deleted = false;
 
 
--- CREATE TABLE hadith_topics (
---     ht_id SERIAL PRIMARY KEY,
---     h_id INTEGER REFERENCES hadiths(h_id) ON DELETE CASCADE,
---     t_id INTEGER REFERENCES topics(t_id),
---     confidence DECIMAL(3,2) DEFAULT 1.0, -- For ML-assigned topics (0.0-1.0)
---     is_manual BOOLEAN DEFAULT TRUE, -- TRUE=human assigned, FALSE=ML assigned
---     assigned_by VARCHAR(100),
---     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     UNIQUE(h_id, t_id)
--- );
-
--- -- Drop existing tables if they exist (careful in production!)
--- DROP TABLE IF EXISTS embeddings CASCADE;
--- DROP TABLE IF EXISTS search_documents CASCADE;
--- DROP TABLE IF EXISTS hadith_topics CASCADE;
--- DROP TABLE IF EXISTS topics CASCADE;
--- DROP TABLE IF EXISTS hadith_pages CASCADE;
--- DROP TABLE IF EXISTS editions CASCADE;
--- DROP TABLE IF EXISTS hadith_sources CASCADE;
--- DROP TABLE IF EXISTS sources CASCADE;
--- DROP TABLE IF EXISTS verses CASCADE;
--- DROP TABLE IF EXISTS hadith_texts CASCADE;
--- DROP TABLE IF EXISTS hadiths CASCADE;
--- DROP TABLE IF EXISTS chapters CASCADE;
--- DROP TABLE IF EXISTS volumes CASCADE;

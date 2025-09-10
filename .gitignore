@@ -2,3 +2,4 @@
 __pycache__/
 *.py[cod]
 Bihar_Al_Anwaar_PDFs/
+.env
